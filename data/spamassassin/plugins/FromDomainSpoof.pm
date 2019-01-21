@@ -37,7 +37,16 @@ sub new
   # the important bit!
   $self->register_eval_rule("check_fromname_domainname_differ");
   $self->register_eval_rule("check_fromname_contains_domain");
+  $self->register_eval_rule("check_fromname_domain_equals_to");
+  $self->register_eval_rule("check_fromname_domainname_spoof");
   return $self;
+}
+
+sub check_fromname_domainname_spoof
+{
+  my ($self, $pms) = @_;
+  $self->_check_fromdomainspoof($pms);
+  return $pms->{fromname_domain_spoof};
 }
 
 sub check_fromname_domainname_differ
@@ -54,6 +63,14 @@ sub check_fromname_contains_domain
   return $pms->{fromname_contains_domain};
 }
 
+sub check_fromname_domain_equals_to
+{
+  my ($self, $pms) = @_;
+  $self->_check_fromdomainspoof($pms);
+  return $pms->{fromname_domain_equals_to};
+}
+
+
 sub _check_fromdomainspoof
 {
   my ($self, $pms) = @_;
@@ -62,6 +79,8 @@ sub _check_fromdomainspoof
 
   $pms->{fromname_contains_domain} = 0;
   $pms->{fromname_domain_different} = 0;
+  $pms->{fromname_domain_equals_to} = 0;
+  $pms->{fromname_domain_spoof} =  0;
 
   foreach my $addr (split / /, $pms->get_tag('DKIMDOMAIN') || '') {
     return 0 if ($self->{main}{conf}{fns_ignore_dkim}{$addr});
@@ -81,31 +100,31 @@ sub _check_fromdomainspoof
 
   my %fnd = ();
   my %fad = ();
+  my %tod = ();
 
   $fnd{'addr'} = $pms->get("From:name");
 
   if ($fnd{'addr'} =~ /\b([\w\-\.]+\.[\w\-\.]++)\b/i) {
-
-    my $nochar = ($fnd{'addr'} =~ y/A-Za-z0-9//c);
-    $nochar -= ($1 =~ y/A-Za-z0-9//c);
-
-    return 0 unless ((length($fnd{'addr'})+$nochar) - length($1) <= $self->{main}{conf}{'fns_extrachars'});
-
     $fnd{'addr'} = lc $1;
   } else {
     return 0;
   }
 
   $fad{'addr'} = lc $pms->get("From:addr");
+  my @toaddrs = $pms->all_to_addrs();
+
+  $tod{'addr'} = lc $toaddrs[0];
 
   $fnd{'domain'} = $self->uri_to_domain($fnd{'addr'});
   $fad{'domain'} = $self->uri_to_domain($fad{'addr'});
+  $tod{'domain'} = $self->uri_to_domain($tod{'addr'});
 
   return 0 unless (defined $fnd{'domain'} && defined $fad{'domain'});
 
   $pms->{fromname_contains_domain} = 1;
-
   $pms->{fromname_domain_different} = 1 if ($fnd{'domain'} ne $fad{'domain'});
+  $pms->{fromname_domain_equals_to} = 1 if ($fnd{'domain'} eq $tod{'domain'});
+  $pms->{fromname_domain_spoof} = 1 if ($pms->{fromname_domain_different} && $pms->{fromname_domain_equals_to});
 
 }
 
